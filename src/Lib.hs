@@ -101,47 +101,18 @@ hmapWithIndex f hcons@(HCons _ _) = go Here hcons
         (f mem gy :: h y)
         (go (unsafeCoerce $ There mem) hlist :: HList ys h)
 
--- hmapWithIndex :: forall xs g h. (forall x. Membership xs x -> g x -> h x) -> HList xs g -> HList xs h
--- hmapWithIndex f HNil = HNil
--- hmapWithIndex f hhlist@(HCons{}) = go Here hhlist
---   where
---     go :: forall z zs. Membership xs z -> HList (z ': zs) g -> HList (z ': zs) h
---     -- go (HCons (gz :: g z) (hlist :: HList zs g)) = (_ :: HList (z ': zs) h)
---     go mem (HCons (gz :: g z) HNil) = HCons (f mem gz) HNil
---     go mem (HCons (gz :: g z) (HCons (papa :: g p) (more :: HList ps g) :: HList zs g)) =
---       let bbb = f mem gz
---           nextMem = There mem :: Membership xs p
---       in HCons bbb $ go _ _
-
--- hfoldrWithIndex :: forall h r xs. (forall x. Membership xs x -> h x -> r -> r) -> r -> HList xs h -> r
--- hfoldrWithIndex f r = go Here
---   where
---     go :: forall ys y. Membership xs y -> HList ys h -> r
---     go = undefined
-
--- htraverseWithIndex :: forall xs g f h. Applicative f => (forall x. Membership xs x -> g x -> f (h x)) -> HList xs g -> f (HList xs h)
--- -- htraverseWithIndex _ HNil = pure HNil
--- -- htraverseWithIndex j (HCons (gz :: g z) (hlist :: HList ys g) :: HList xs g) =
--- --   -- let
--- --       -- yyy = htraverseWithIndex _ hlist :: f (HList ys h)
--- --   -- let
--- --   --     xxx = f Here gx :: f (h x)
--- --   --     -- yyy = htraverseWithIndex f hlist
--- --   -- in _ -- HCons <$> xxx <*> yyy
--- --   -- in undefined
--- --   undefined
--- --   where
--- --     xxx :: f (h z)
--- --     xxx = j Here gz
-
--- --     yyy :: f (HList ys h)
--- --     yyy = htraverseWithIndex j hlist
--- htraverseWithIndex f = go Here
---   where
---     go :: Membership xs x -> HList xs g -> f (HList xs h)
---     go Here HNil = pure HNil
---     go (There mem) (HCons gx hlist) = HCons <$> f mem gx <*> go (There mem) hlist
-
+htraverseWithIndex :: forall xs g f h. Applicative f => (forall x. Membership xs x -> g x -> f (h x)) -> HList xs g -> f (HList xs h)
+htraverseWithIndex _ HNil = pure HNil
+htraverseWithIndex f hcons@(HCons _ _) = go Here hcons
+  where
+    go :: forall y ys. Membership xs y -> HList (y ': ys) g -> f (HList (y ': ys) h)
+    go mem (HCons (gy :: g y) HNil) =
+      let xxx = f mem gy :: f (h y)
+      in HCons <$> xxx <*> pure HNil
+    go mem (HCons (gy :: g y) hlist@HCons{}) =
+      let xxx = f mem gy :: f (h y)
+          yyy = go (unsafeCoerce $ There mem) hlist :: f (HList ys h)
+      in HCons <$> xxx <*> yyy
 
 ------------
 -- Tangle --
