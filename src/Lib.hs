@@ -48,7 +48,6 @@ unsafeIntToMem 0 = unsafeCoerce Here
 unsafeIntToMem n = unsafeCoerce $ There $ unsafeIntToMem (n - 1)
 
 class Generate (xs :: [k]) where
-
   hgenerate
     :: forall f h
      . (Applicative f)
@@ -224,23 +223,56 @@ runTangles' tangles = do
           n = unTangle tangle :: HList xs (Comp (Tangle xs h) h) -> IO (h x)
       n r
 
+runTangles''
+  :: forall xs h
+   . HList xs (Comp (Tangle xs h) h)
+  -> IO (HList xs h)
+runTangles'' tangles = do
+  let tangle = hlistToGenerate tangles $ hgenerate f :: Tangle xs h (HList xs h)
+      m = unTangle tangle :: HList xs (Comp (Tangle xs h) h) -> IO (HList xs h)
+  a <- m tangles :: IO (HList xs h)
+  pure a
+  where
+    f :: forall x. Membership xs x -> Tangle xs h (h x)
+    f mem = Tangle $ \(r :: HList xs (Comp (Tangle xs h) h)) -> do
+      let comp = hlookup mem r :: Comp (Tangle xs h) h x
+          tangle = getComp comp :: Tangle xs h (h x)
+          n = unTangle tangle :: HList xs (Comp (Tangle xs h) h) -> IO (h x)
+      putStrLn $ "In runTangles'', f, before running inner action n for membership " <> show (memToInt mem)
+      sss <- n r :: IO (h x)
+      putStrLn $ "In runTangles'', f, after running inner action n for membership " <> show (memToInt mem)
+      pure sss
+
+hlistToGenerate :: HList xs h -> (Generate xs => r) -> r
+hlistToGenerate HNil r = r
+hlistToGenerate (HCons _ inner) r = hlistToGenerate inner r
 
 --------------------------------------------------------
 
 example :: IO ()
 example = do
-  res <- runTangles'
+  res <- runTangles''
     (HCons x1 $ HCons x2 $ HCons x3 HNil)
   print (res :: HList '[Int, String, Double] Maybe)
   where
     x1 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe Int
-    x1 = Comp $ do
-      liftIO $ putStrLn "Evaluating x1, String, about to pull out x2"
-      let mem = unsafeIntToMem 1 :: Membership '[Int, String, Double] String
-      Just str <- hitchAt mem
-      liftIO $ putStrLn "Evaluating x1, finished pulling out x2"
-      pure $ Just $ read str
-      -- pure (Just 3)
+    x1 = Comp xxx1
+
+    xxx1 :: Tangle '[Int, String, Double] Maybe (Maybe Int)
+    xxx1 =
+      Tangle $
+        \(r :: HList
+                '[Int, String, Double]
+                (Comp (Tangle '[Int, String, Double] Maybe) Maybe)
+         ) -> do
+            putStrLn "Evaluating x1, String, about to pull out x2"
+            let mem = There Here :: Membership '[Int, String, Double] String
+                rrr = hlookup mem r :: Comp (Tangle '[Int, String, Double] Maybe) Maybe String
+                bbb = getComp rrr :: Tangle '[Int, String, Double] Maybe (Maybe String)
+                ggg = unTangle bbb :: HList '[Int, String, Double] (Comp (Tangle '[Int, String, Double] Maybe) Maybe) -> IO (Maybe String)
+            Just str <- ggg r :: IO (Maybe String)
+            putStrLn "Evaluating x1, finished pulling out x2"
+            pure $ Just $ read str
 
     x2 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe String
     x2 = Comp $ do
