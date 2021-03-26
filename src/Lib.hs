@@ -18,6 +18,7 @@
 
 module Lib where
 
+import Data.Functor.Identity
 import Unsafe.Coerce (unsafeCoerce)
 
 ----------
@@ -45,15 +46,32 @@ unsafeIntToMem 0 = unsafeCoerce Here
 unsafeIntToMem n = unsafeCoerce $ There $ unsafeIntToMem (n - 1)
 
 class Generate (xs :: [k]) where
-  hrepeat :: forall h. (forall x. h x) -> HList xs h
+
+  hgenerate
+    :: forall f h
+     . (Applicative f)
+    => (forall x. Membership xs x -> f (h x))
+    -> f (HList xs h)
 
 instance Generate '[] where
-  hrepeat :: forall h. (forall x. h x) -> HList '[] h
-  hrepeat _ = HNil
+  hgenerate
+    :: forall f h
+     . (Applicative f)
+    => (forall x. Membership '[] x -> f (h x))
+    -> f (HList '[] h)
+  hgenerate _ = pure HNil
 
 instance Generate ys => Generate (y ': ys) where
-  hrepeat :: forall h. (forall x. h x) -> HList (y ': ys) h
-  hrepeat f = HCons f $ hrepeat f
+  hgenerate
+    :: forall f h
+     . Applicative f
+    => (forall x. Membership (y ': ys) x -> f (h x))
+    -> f (HList (y ': ys) h)
+  hgenerate f =
+    HCons <$> f Here <*> hgenerate (f . There)
+
+hrepeat :: forall h xs. Generate xs => (forall x. Membership xs x -> h x) -> HList xs h
+hrepeat f = runIdentity $ hgenerate (Identity . f)
 
 -----------
 -- HList --
@@ -222,3 +240,17 @@ example = do
 
     memo3 :: Comp Maybe Maybe Double
     memo3 = Comp Nothing
+
+example2 :: IO ()
+example2 = do
+  res <- runTangles
+    (hrepeat f)
+    (hrepeat (\_mem -> Comp Nothing))
+  print (res :: HList '[Int, String, Double] Maybe)
+  where
+    f
+      :: Membership '[Int, String, Double] x
+      -> Comp (Tangle '[Int, String, Double] Maybe) Maybe x
+    f mem = Comp $ do
+      something <- hitchAt mem
+      pure something
