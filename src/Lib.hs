@@ -363,3 +363,122 @@ readTTupVal2 =
 
 readTTupVal3 :: ReaderT (Int, String, Double) IO Double
 readTTupVal3 = pure 3.3
+
+---------------------
+-- My Hacky Tangle --
+---------------------
+
+newtype Toogle a = Toogle { unToogle :: [ Toogle String ] -> IO a }
+  deriving Functor
+
+instance Applicative Toogle where
+  pure a = Toogle $ \_ -> pure a
+  Toogle f <*> Toogle g = Toogle $ \r -> f r <*> g r
+
+instance Monad Toogle where
+  Toogle f >>= k = Toogle $ \r -> f r >>= \a -> unToogle (k a) r
+
+instance MonadIO Toogle where
+  liftIO f = Toogle $ \_ -> f
+
+toogleHitchAt :: Int -> Toogle String
+toogleHitchAt i = Toogle $ \r ->
+  let Toogle toog = r !! i
+  in toog r
+
+runToogles
+  :: [Toogle String]
+  -> IO [String]
+runToogles toogles = do
+  let toogle = traverse f [0 .. length toogles - 1] :: Toogle [String]
+      m = unToogle toogle :: [Toogle String] -> IO [String]
+  m toogles :: IO [String]
+  where
+    f :: Int -> Toogle String
+    f mem = Toogle $ go mem
+
+    go :: Int -> [Toogle String] -> IO String
+    go mem r = do
+      let toogle = r !! mem :: Toogle String
+          xxx = unToogle toogle :: [Toogle String] -> IO String
+      putStrLn $ "In runToogles, f, before running action n for membership " <> show mem
+      sss <- xxx r :: IO String
+      putStrLn $ "In runToogles, f, after running action n for membership " <> show mem
+      pure sss
+
+runToogles'
+  :: [Toogle String]
+  -> IO [String]
+runToogles' toogles = do
+  let toogle = traverse f [0 .. length toogles - 1] :: Toogle [String]
+      m = unToogle toogle :: [Toogle String] -> IO [String]
+  m toogles :: IO [String]
+  where
+    f :: Int -> Toogle String
+    f mem =
+      Toogle $ \(r :: [Toogle String]) -> do
+        let unwrapped = unToogle (r !! mem) :: [Toogle String] -> IO String
+        putStrLn $ "In runToogles, f, before run action n for membership " <> show mem
+        sss <- unwrapped r :: IO String
+        putStrLn $ "In runToogles, f, after run action n for membership " <> show mem
+        pure sss
+
+runToogles''
+  :: [Toogle String]
+  -> IO [String]
+runToogles'' toogles = do
+  let toogle = go [0 .. length toogles - 1] :: [Toogle String] -> IO [String]
+      m = toogle :: [Toogle String] -> IO [String]
+  m toogles :: IO [String]
+  where
+    go :: [Int] -> [Toogle String] -> IO [String]
+    go is alltoogles =
+      traverse (\i -> f i alltoogles) is
+
+    f :: Int -> [Toogle String] -> IO String
+    f mem r = do
+      let unwrapped = unToogle (r !! mem) :: [Toogle String] -> IO String
+      putStrLn $ "In runToogles, f, before run action n for membership " <> show mem
+      sss <- unwrapped r :: IO String
+      putStrLn $ "In runToogles, f, after run action n for membership " <> show mem
+      pure sss
+
+example6 :: IO ()
+example6 = do
+  res <- runToogles'' [x1, x2, x3]
+  print res
+  where
+    -- x1 :: Toogle String
+    -- x1 = do
+    --   liftIO $ putStrLn "Evaluating x1, about to pull out x2"
+    --   x2Val <- toogleHitchAt 1
+    --   liftIO $ putStrLn "Evaluating x1, finished pulling out x2"
+    --   pure $ "x1 val" <> x2Val
+
+    x1 :: Toogle String
+    x1 = Toogle $ \(r :: [Toogle String]) -> do
+      putStrLn "Evaluating x1, about to pull out x2"
+      let f = unToogle (r !! 1) :: [Toogle String] -> IO String
+      x2Val <- f r
+      putStrLn "Evaluating x1, finished pulling out x2"
+      pure $ "x1 val" <> x2Val
+
+    x2 :: Toogle String
+    x2 = do
+      liftIO $ putStrLn "Evaluating x2"
+      pure "x2 val"
+
+    x3 :: Toogle String
+    x3 = do
+      liftIO $ putStrLn "Evaluating x3"
+      pure "x3 val"
+
+----------------------
+-- My Hacky Tangle2 --
+----------------------
+
+-- newtype Fix (f :: * -> *)  = Fix { unFix :: f (Fix f) }
+
+-- newtype TwogleF (a :: *) (f :: * -> *) = Twogle { unTwogle :: [ f String ] -> IO a }
+
+-- type Twogle a = Fix (TwogleF a)
