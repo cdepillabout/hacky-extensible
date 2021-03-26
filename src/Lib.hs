@@ -234,7 +234,10 @@ runTangles'' tangles = do
   pure a
   where
     f :: forall x. Membership xs x -> Tangle xs h (h x)
-    f mem = Tangle $ \(r :: HList xs (Comp (Tangle xs h) h)) -> do
+    f mem = Tangle $ go mem
+
+    go :: forall x. Membership xs x -> HList xs (Comp (Tangle xs h) h) -> IO (h x)
+    go mem r = do
       let comp = hlookup mem r :: Comp (Tangle xs h) h x
           tangle = getComp comp :: Tangle xs h (h x)
           n = unTangle tangle :: HList xs (Comp (Tangle xs h) h) -> IO (h x)
@@ -291,6 +294,10 @@ example2 = do
       :: {- Typeable x
       => -} Membership '[Int, String, Double] x
       -> Comp (Tangle '[Int, String, Double] Maybe) Maybe x
-    f mem = Comp $ do
-      something <- hitchAt mem
-      pure something
+    f Here = Comp $ do
+      maybeStr <- hitchAt (There Here)
+      pure (fmap read maybeStr)
+    f (There Here) = Comp $ do
+      pure (Just "100")
+    f _ = Comp $ do
+      pure Nothing
