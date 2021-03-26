@@ -443,9 +443,23 @@ runToogles'' toogles = do
       putStrLn $ "In runToogles, f, after run action n for membership " <> show mem
       pure sss
 
+runToogles'''
+  :: [Toogle String]
+  -> IO [String]
+runToogles''' toogles = do
+  traverse f [0 .. length toogles - 1] :: IO [String]
+  where
+    f :: Int -> IO String
+    f mem = do
+      let unwrapped = unToogle (toogles !! mem) :: [Toogle String] -> IO String
+      putStrLn $ "In runToogles, f, before run action n for membership " <> show mem
+      sss <- unwrapped toogles :: IO String
+      putStrLn $ "In runToogles, f, after run action n for membership " <> show mem
+      pure sss
+
 example6 :: IO ()
 example6 = do
-  res <- runToogles'' [x1, x2, x3]
+  res <- runToogles''' [x1, x2, x3]
   print res
   where
     -- x1 :: Toogle String
