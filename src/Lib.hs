@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
@@ -43,6 +44,17 @@ unsafeIntToMem :: Int -> Membership xs x
 unsafeIntToMem 0 = unsafeCoerce Here
 unsafeIntToMem n = unsafeCoerce $ There $ unsafeIntToMem (n - 1)
 
+class Generate (xs :: [k]) where
+  hrepeat :: forall h. (forall x. h x) -> HList xs h
+
+instance Generate '[] where
+  hrepeat :: forall h. (forall x. h x) -> HList '[] h
+  hrepeat _ = HNil
+
+instance Generate ys => Generate (y ': ys) where
+  hrepeat :: forall h. (forall x. h x) -> HList (y ': ys) h
+  hrepeat f = HCons f $ hrepeat f
+
 -----------
 -- HList --
 -----------
@@ -50,6 +62,12 @@ unsafeIntToMem n = unsafeCoerce $ There $ unsafeIntToMem (n - 1)
 data HList xs h where
   HNil :: HList '[] h
   HCons :: h x -> HList ys h -> HList (x ': ys) h
+
+instance Show (HList '[] h) where
+  show HNil = "HNil"
+
+instance (Show (HList xs h), Show (h x)) => Show (HList (x ': xs) h) where
+  show (HCons hx hlist) = "HCons (" <> show hx <> ") (" <> show hlist <> ")"
 
 hlookup :: Membership xs x -> HList xs h -> h x
 hlookup Here (HCons hx _) = hx
@@ -101,7 +119,12 @@ hmapWithIndex f hcons@(HCons _ _) = go Here hcons
         (f mem gy :: h y)
         (go (unsafeCoerce $ There mem) hlist :: HList ys h)
 
-htraverseWithIndex :: forall xs g f h. Applicative f => (forall x. Membership xs x -> g x -> f (h x)) -> HList xs g -> f (HList xs h)
+htraverseWithIndex
+  :: forall xs g f h
+   . Applicative f
+  => (forall x. Membership xs x -> g x -> f (h x))
+  -> HList xs g
+  -> f (HList xs h)
 htraverseWithIndex _ HNil = pure HNil
 htraverseWithIndex f hcons@(HCons _ _) = go Here hcons
   where
@@ -155,12 +178,47 @@ evalTangleT tangles rec0 (Tangle m) = do
   (a, _nulls) <- m tangles rec0
   pure a
 
--- runTangles
---   :: HList xs (Comp (Tangle xs h) h)
---   -> HList xs (Comp Maybe h)
---   -> IO (HList xs h)
--- runTangles tangles rec0 =
---   evalTangleT tangles rec0 $
---     Tangle $ \r null -> do
---       -- r :: HList xs (Comp (Tangle xs h) h)
---       pure (_ :: HList xs h, null)
+runTangles
+  :: HList xs (Comp (Tangle xs h) h)
+  -> HList xs (Comp Maybe h)
+  -> IO (HList xs h)
+runTangles tangles rec0 =
+  evalTangleT tangles rec0 $
+    htraverseWithIndex (\mem _ -> hitchAt mem) rec0
+
+runTangles'
+  :: HList xs (Comp (Tangle xs h) h)
+  -> HList xs (Comp Maybe h)
+  -> IO (HList xs h)
+runTangles' tangles rec0 = do
+  let Tangle m = htraverseWithIndex (\mem _ -> hitchAt mem) rec0
+  (a, _nulls) <- m tangles rec0
+  pure a
+
+
+--------------------------------------------------------
+
+example :: IO ()
+example = do
+  res <- runTangles
+    (HCons x1 $ HCons x2 $ HCons x3 HNil)
+    (HCons memo1 $ HCons memo2 $ HCons memo3 HNil)
+  print (res :: HList '[Int, String, Double] Maybe)
+  where
+    x1 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe Int
+    x1 = Comp $ pure (Just 3)
+
+    x2 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe String
+    x2 = Comp $ pure (Just "hello")
+
+    x3 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe Double
+    x3 = Comp $ pure Nothing
+
+    memo1 :: Comp Maybe Maybe Int
+    memo1 = Comp Nothing
+
+    memo2 :: Comp Maybe Maybe String
+    memo2 = Comp Nothing
+
+    memo3 :: Comp Maybe Maybe Double
+    memo3 = Comp Nothing
