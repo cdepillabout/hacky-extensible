@@ -20,7 +20,7 @@ module Lib where
 
 import Control.Monad.IO.Class
 import Data.Functor.Identity
-import Data.Typeable
+-- import Data.Typeable
 import Unsafe.Coerce (unsafeCoerce)
 
 ----------
@@ -210,15 +210,19 @@ runTangles'
    . HList xs (Comp (Tangle xs h) h)
   -> IO (HList xs h)
 runTangles' tangles = do
-  let Tangle m = htraverseWithIndex f tangles :: Tangle xs h (HList xs h)
-      _ = m
+  let tangle = htraverseWithIndex f tangles :: Tangle xs h (HList xs h)
+      m = unTangle tangle
           :: HList xs (Comp (Tangle xs h) h)
           -> IO (HList xs h)
   a <- m tangles
   pure a
   where
     f :: forall x b. Membership xs x -> b -> Tangle xs h (h x)
-    f mem _ = hitchAt mem
+    f mem _ = Tangle $ \(r :: HList xs (Comp (Tangle xs h) h)) -> do
+      let comp = hlookup mem r :: Comp (Tangle xs h) h x
+          tangle = getComp comp :: Tangle xs h (h x)
+          n = unTangle tangle :: HList xs (Comp (Tangle xs h) h) -> IO (h x)
+      n r
 
 
 --------------------------------------------------------
