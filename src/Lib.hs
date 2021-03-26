@@ -18,7 +18,9 @@
 
 module Lib where
 
+import Control.Monad.IO.Class
 import Data.Functor.Identity
+import Data.Typeable
 import Unsafe.Coerce (unsafeCoerce)
 
 ----------
@@ -103,13 +105,6 @@ hmap _ HNil = HNil
 hmap f (HCons gx hlist) = HCons (f gx) (hmap f hlist)
 
 -- hmapWithIndex :: forall xs g h. (forall x. Membership xs x -> g x -> h x) -> HList xs g -> HList xs h
--- hmapWithIndex f = go 0
---   where
---     go :: forall ys. Int -> HList ys g -> HList ys h
---     go _ HNil = HNil
---     go n (HCons (gy :: g y) hlist) = HCons (f (unsafeIntToMem n :: Membership xs y) gy) (go (n + 1) hlist)
-
--- hmapWithIndex :: forall xs g h. (forall x. Membership xs x -> g x -> h x) -> HList xs g -> HList xs h
 -- hmapWithIndex _ HNil = HNil
 -- hmapWithIndex f hcons@(HCons _ _) = go 0 hcons
 --   where
@@ -181,6 +176,14 @@ instance Monad (Tangle xs h) where
     (b, nulls'') <- g r nulls'
     pure (b, nulls'')
 
+instance MonadFail (Tangle xs h) where
+  fail str = Tangle $ \_ _ -> fail str
+
+instance MonadIO (Tangle xs h) where
+  liftIO f = Tangle $ \_ nulls -> do
+    res <- f
+    pure (res, nulls)
+
 -- TODO: This doesn't use nulls
 hitchAt :: Membership xs x -> Tangle xs h (h x)
 hitchAt mem = Tangle $ \r nulls -> do
@@ -205,29 +208,45 @@ runTangles tangles rec0 =
     htraverseWithIndex (\mem _ -> hitchAt mem) rec0
 
 runTangles'
-  :: HList xs (Comp (Tangle xs h) h)
+  :: forall xs h
+   . HList xs (Comp (Tangle xs h) h)
   -> HList xs (Comp Maybe h)
   -> IO (HList xs h)
 runTangles' tangles rec0 = do
-  let Tangle m = htraverseWithIndex (\mem _ -> hitchAt mem) rec0
+  let Tangle m = htraverseWithIndex f rec0 :: Tangle xs h (HList xs h)
+      _ = m
+          :: HList xs (Comp (Tangle xs h) h)
+          -> HList xs (Comp Maybe h)
+          -> IO (HList xs h, HList xs (Comp Maybe h))
   (a, _nulls) <- m tangles rec0
   pure a
+  where
+    f :: forall x. Membership xs x -> Comp Maybe h x -> Tangle xs h (h x)
+    f mem _ = hitchAt mem
 
 
 --------------------------------------------------------
 
 example :: IO ()
 example = do
-  res <- runTangles
+  res <- runTangles'
     (HCons x1 $ HCons x2 $ HCons x3 HNil)
     (HCons memo1 $ HCons memo2 $ HCons memo3 HNil)
   print (res :: HList '[Int, String, Double] Maybe)
   where
     x1 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe Int
-    x1 = Comp $ pure (Just 3)
+    x1 = Comp $ do
+      liftIO $ putStrLn "Evaluating x1, String, about to pull out x2"
+      let mem = unsafeIntToMem 1 :: Membership '[Int, String, Double] String
+      Just str <- hitchAt mem
+      liftIO $ putStrLn "Evaluating x1, finished pulling out x2"
+      pure $ Just $ read str
+      -- pure (Just 3)
 
     x2 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe String
-    x2 = Comp $ pure (Just "hello")
+    x2 = Comp $ do
+      liftIO $ putStrLn "Evaluating x2, String"
+      pure (Just "100")
 
     x3 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe Double
     x3 = Comp $ pure Nothing
@@ -249,7 +268,8 @@ example2 = do
   print (res :: HList '[Int, String, Double] Maybe)
   where
     f
-      :: Membership '[Int, String, Double] x
+      :: {- Typeable x
+      => -} Membership '[Int, String, Double] x
       -> Comp (Tangle '[Int, String, Double] Maybe) Maybe x
     f mem = Comp $ do
       something <- hitchAt mem
