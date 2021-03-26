@@ -155,73 +155,69 @@ htraverseWithIndex f hcons@(HCons _ _) = go Here hcons
 ------------
 
 newtype Tangle xs h a = Tangle
-  { unTangle :: HList xs (Comp (Tangle xs h) h) -> HList xs (Comp Maybe h) -> IO (a, HList xs (Comp Maybe h))
+  { unTangle :: HList xs (Comp (Tangle xs h) h) -> IO a
   }
   deriving Functor
 
 instance Applicative (Tangle xs h) where
-  pure a = Tangle $ \_ nulls -> pure (a, nulls)
+  pure a = Tangle $ \_ -> pure a
 
   (<*>) :: Tangle xs h (a -> b) -> Tangle xs h a -> Tangle xs h b
-  Tangle f <*> Tangle g = Tangle $ \r nulls -> do
-    (a2b, nulls') <- f r nulls
-    (a, nulls'') <- g r nulls'
-    pure (a2b a, nulls'')
+  Tangle f <*> Tangle g = Tangle $ \r -> do
+    a2b <- f r
+    a <- g r
+    pure $ a2b a
 
 instance Monad (Tangle xs h) where
   (>>=) :: forall a b. Tangle xs h a -> (a -> Tangle xs h b) -> Tangle xs h b
-  Tangle f >>= k = Tangle $ \r nulls -> do
-    (a, nulls') <- f r nulls
+  Tangle f >>= k = Tangle $ \r -> do
+    a <- f r
     let Tangle g = k a :: Tangle xs h b
-    (b, nulls'') <- g r nulls'
-    pure (b, nulls'')
+    b <- g r
+    pure b
 
 instance MonadFail (Tangle xs h) where
-  fail str = Tangle $ \_ _ -> fail str
+  fail str = Tangle $ \_ -> fail str
 
 instance MonadIO (Tangle xs h) where
-  liftIO f = Tangle $ \_ nulls -> do
+  liftIO f = Tangle $ \_ -> do
     res <- f
-    pure (res, nulls)
+    pure res
 
 -- TODO: This doesn't use nulls
 hitchAt :: Membership xs x -> Tangle xs h (h x)
-hitchAt mem = Tangle $ \r nulls -> do
+hitchAt mem = Tangle $ \r -> do
   let Tangle m = getComp $ hlookup mem r
-  m r nulls
+  m r
 
 evalTangleT
   :: HList xs (Comp (Tangle xs h) h)
-  -> HList xs (Comp Maybe h)
   -> Tangle xs h a
   -> IO a
-evalTangleT tangles rec0 (Tangle m) = do
-  (a, _nulls) <- m tangles rec0
+evalTangleT tangles (Tangle m) = do
+  a <- m tangles
   pure a
 
 runTangles
   :: HList xs (Comp (Tangle xs h) h)
-  -> HList xs (Comp Maybe h)
   -> IO (HList xs h)
-runTangles tangles rec0 =
-  evalTangleT tangles rec0 $
-    htraverseWithIndex (\mem _ -> hitchAt mem) rec0
+runTangles tangles =
+  evalTangleT tangles $
+    htraverseWithIndex (\mem _ -> hitchAt mem) tangles
 
 runTangles'
   :: forall xs h
    . HList xs (Comp (Tangle xs h) h)
-  -> HList xs (Comp Maybe h)
   -> IO (HList xs h)
-runTangles' tangles rec0 = do
-  let Tangle m = htraverseWithIndex f rec0 :: Tangle xs h (HList xs h)
+runTangles' tangles = do
+  let Tangle m = htraverseWithIndex f tangles :: Tangle xs h (HList xs h)
       _ = m
           :: HList xs (Comp (Tangle xs h) h)
-          -> HList xs (Comp Maybe h)
-          -> IO (HList xs h, HList xs (Comp Maybe h))
-  (a, _nulls) <- m tangles rec0
+          -> IO (HList xs h)
+  a <- m tangles
   pure a
   where
-    f :: forall x. Membership xs x -> Comp Maybe h x -> Tangle xs h (h x)
+    f :: forall x b. Membership xs x -> b -> Tangle xs h (h x)
     f mem _ = hitchAt mem
 
 
@@ -231,7 +227,6 @@ example :: IO ()
 example = do
   res <- runTangles'
     (HCons x1 $ HCons x2 $ HCons x3 HNil)
-    (HCons memo1 $ HCons memo2 $ HCons memo3 HNil)
   print (res :: HList '[Int, String, Double] Maybe)
   where
     x1 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe Int
@@ -251,20 +246,9 @@ example = do
     x3 :: Comp (Tangle '[Int, String, Double] Maybe) Maybe Double
     x3 = Comp $ pure Nothing
 
-    memo1 :: Comp Maybe Maybe Int
-    memo1 = Comp Nothing
-
-    memo2 :: Comp Maybe Maybe String
-    memo2 = Comp Nothing
-
-    memo3 :: Comp Maybe Maybe Double
-    memo3 = Comp Nothing
-
 example2 :: IO ()
 example2 = do
-  res <- runTangles
-    (hrepeat f)
-    (hrepeat (\_mem -> Comp Nothing))
+  res <- runTangles (hrepeat f)
   print (res :: HList '[Int, String, Double] Maybe)
   where
     f
