@@ -7,6 +7,7 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -19,6 +20,7 @@
 module Lib where
 
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Reader
 import Data.Functor.Identity
 -- import Data.Typeable
 import Unsafe.Coerce (unsafeCoerce)
@@ -301,3 +303,63 @@ example2 = do
       pure (Just "100")
     f _ = Comp $ do
       pure Nothing
+
+
+----------------------
+-- My Laziness Test --
+----------------------
+
+example3 :: IO ()
+example3 = do
+  let tuple = (tupVal1 tuple, tupVal2 tuple, tupVal3 tuple)
+  print tuple
+
+tupVal1 :: (Int, String, Double) -> Int
+tupVal1 _ = 3
+
+tupVal2 :: (Int, String, Double) -> String
+tupVal2 (i, _, d) = "hello " <> show i <> " " <> show d <> " world"
+
+tupVal3 :: (Int, String, Double) -> Double
+tupVal3 _ = 3.3
+
+------------------------
+-- My Laziness Test 2 --
+------------------------
+
+example4 :: IO ()
+example4 = do
+  let readerTuple = (,,) <$> readTupVal1 <*> readTupVal2 <*> readTupVal3
+      tuple = runReader readerTuple tuple
+  print tuple
+
+readTupVal1 :: Reader (Int, String, Double) Int
+readTupVal1 = pure 3
+
+readTupVal2 :: Reader (Int, String, Double) String
+readTupVal2 = do
+  (i, _, d) <- ask
+  pure $ "hello " <> show i <> " " <> show d <> " world"
+
+readTupVal3 :: Reader (Int, String, Double) Double
+readTupVal3 = pure 3.3
+
+------------------------
+-- My Laziness Test 3 --
+------------------------
+
+example5 :: IO ()
+example5 = do
+  let readerTuple = (,,) <$> readTTupVal1 <*> readTTupVal2 <*> readTTupVal3
+  rec tuple <- runReaderT readerTuple tuple
+  print tuple
+
+readTTupVal1 :: ReaderT (Int, String, Double) IO Int
+readTTupVal1 = pure 3
+
+readTTupVal2 :: ReaderT (Int, String, Double) IO String
+readTTupVal2 =
+  fmap (\(i, _, d) -> "hello " <> show i <> " " <> show d <> " world") ask
+
+readTTupVal3 :: ReaderT (Int, String, Double) IO Double
+readTTupVal3 = pure 3.3
