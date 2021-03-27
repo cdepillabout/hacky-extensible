@@ -491,8 +491,67 @@ example6 = do
 -- My Hacky Tangle2 --
 ----------------------
 
--- newtype Fix (f :: * -> *)  = Fix { unFix :: f (Fix f) }
+newtype Twogle b a = Twogle { unTwogle :: [ Twogle b b ] -> IO a }
+  deriving Functor
 
--- newtype TwogleF (a :: *) (f :: * -> *) = Twogle { unTwogle :: [ f String ] -> IO a }
+instance Applicative (Twogle b) where
+  pure a = Twogle $ \_ -> pure a
+  Twogle f <*> Twogle g = Twogle $ \r -> f r <*> g r
 
--- type Twogle a = Fix (TwogleF a)
+instance Monad (Twogle b) where
+  Twogle f >>= k = Twogle $ \r -> f r >>= \a -> unTwogle (k a) r
+
+instance MonadIO (Twogle b) where
+  liftIO f = Twogle $ \_ -> f
+
+twogleHitchAt :: forall b. Int -> Twogle b b
+twogleHitchAt i = Twogle go
+  where
+    go :: [Twogle b b] -> IO b
+    go r =
+      let twog = unTwogle $ r !! i :: [Twogle b b] -> IO b
+      in twog r
+
+runTwogles
+  :: forall b
+   . [Twogle b b]
+  -> IO [b]
+runTwogles twogles = do
+  let twogle = traverse f [0 .. length twogles - 1] :: Twogle b [b]
+      m = unTwogle twogle :: [Twogle b b] -> IO [b]
+  m twogles :: IO [b]
+  where
+    f :: Int -> Twogle b b
+    f mem = Twogle $ go mem
+
+    go :: Int -> [Twogle b b] -> IO b
+    go mem r = do
+      let twogle = r !! mem :: Twogle b b
+          xxx = unTwogle twogle :: [Twogle b b] -> IO b
+      putStrLn $ "In runTwogles, f, before running action n for membership " <> show mem
+      sss <- xxx r :: IO b
+      putStrLn $ "In runTwogles, f, after running action n for membership " <> show mem
+      pure sss
+
+example7 :: IO ()
+example7 = do
+  res <- runTwogles [x1, x2, x3]
+  print res
+  where
+    x1 :: Twogle String String
+    x1 = Twogle $ \(r :: [Twogle String String]) -> do
+      putStrLn "Evaluating x1, about to pull out x2"
+      let f = unTwogle (r !! 1) :: [Twogle String String] -> IO String
+      x2Val <- f r
+      putStrLn "Evaluating x1, finished pulling out x2"
+      pure $ "x1 val" <> x2Val
+
+    x2 :: Twogle String String
+    x2 = do
+      liftIO $ putStrLn "Evaluating x2"
+      pure "x2 val"
+
+    x3 :: Twogle String String
+    x3 = do
+      liftIO $ putStrLn "Evaluating x3"
+      pure "x3 val"
