@@ -19,9 +19,12 @@
 
 module Lib where
 
+import Control.Category (Category)
+import qualified Control.Category as Cat
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Data.Functor.Identity
+import Data.Key
 -- import Data.Typeable
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -491,67 +494,173 @@ example6 = do
 -- My Hacky Tangle2 --
 ----------------------
 
-newtype Twogle b a = Twogle { unTwogle :: [ Twogle b b ] -> IO a }
+newtype Twogle f b a = Twogle { unTwogle :: f (Twogle f b b) -> IO a }
   deriving Functor
 
-instance Applicative (Twogle b) where
+instance Applicative (Twogle f b) where
   pure a = Twogle $ \_ -> pure a
   Twogle f <*> Twogle g = Twogle $ \r -> f r <*> g r
 
-instance Monad (Twogle b) where
+instance Monad (Twogle f b) where
   Twogle f >>= k = Twogle $ \r -> f r >>= \a -> unTwogle (k a) r
 
-instance MonadIO (Twogle b) where
+instance MonadIO (Twogle f b) where
   liftIO f = Twogle $ \_ -> f
 
-twogleHitchAt :: forall b. Int -> Twogle b b
-twogleHitchAt i = Twogle go
+twogleHitchAt :: forall b f. (forall x. f x -> x) -> Twogle f b b
+twogleHitchAt lookupFunc = Twogle go
   where
-    go :: [Twogle b b] -> IO b
+    go :: f (Twogle f b b) -> IO b
     go r =
-      let twog = unTwogle $ r !! i :: [Twogle b b] -> IO b
+      let twog = unTwogle $ lookupFunc r :: f (Twogle f b b) -> IO b
+      in twog r
+
+twogleHitchAtIndexable :: forall b f. Indexable f => Key f -> Twogle f b b
+twogleHitchAtIndexable key = Twogle go
+  where
+    go :: f (Twogle f b b) -> IO b
+    go r =
+      let twog = unTwogle $ index r key :: f (Twogle f b b) -> IO b
       in twog r
 
 runTwogles
-  :: forall b
-   . [Twogle b b]
-  -> IO [b]
+  :: forall b f
+   . Traversable f
+  => f (Twogle f b b)
+  -> IO (f b)
 runTwogles twogles = do
-  let twogle = traverse f [0 .. length twogles - 1] :: Twogle b [b]
-      m = unTwogle twogle :: [Twogle b b] -> IO [b]
-  m twogles :: IO [b]
+  let twogle = traverse go twogles :: Twogle f b (f b)
+      m = unTwogle twogle :: f (Twogle f b b) -> IO (f b)
+  m twogles :: IO (f b)
   where
-    f :: Int -> Twogle b b
-    f mem = Twogle $ go mem
-
-    go :: Int -> [Twogle b b] -> IO b
-    go mem r = do
-      let twogle = r !! mem :: Twogle b b
-          xxx = unTwogle twogle :: [Twogle b b] -> IO b
-      putStrLn $ "In runTwogles, f, before running action n for membership " <> show mem
-      sss <- xxx r :: IO b
-      putStrLn $ "In runTwogles, f, after running action n for membership " <> show mem
-      pure sss
+    go :: Twogle f b b -> Twogle f b b
+    go (Twogle inner) = Twogle gogo
+      where
+        gogo :: f (Twogle f b b) -> IO b
+        gogo r = do
+          putStrLn $ "In runTwogles, gogo, before running inner"
+          res <- inner r
+          putStrLn $ "In runTwogles, gogo, after running inner"
+          pure res
 
 example7 :: IO ()
 example7 = do
   res <- runTwogles [x1, x2, x3]
   print res
   where
-    x1 :: Twogle String String
-    x1 = Twogle $ \(r :: [Twogle String String]) -> do
-      putStrLn "Evaluating x1, about to pull out x2"
-      let f = unTwogle (r !! 1) :: [Twogle String String] -> IO String
-      x2Val <- f r
-      putStrLn "Evaluating x1, finished pulling out x2"
-      pure $ "x1 val" <> x2Val
+    x1 :: Twogle [] String String
+    x1 =
+      Twogle $ \(r :: [Twogle [] String String]) -> do
+        putStrLn "Evaluating x1, about to pull out x2"
+        let f = unTwogle (r !! 1) :: [Twogle [] String String] -> IO String
+        x2Val <- f r
+        putStrLn "Evaluating x1, finished pulling out x2"
+        pure $ "x1 val" <> x2Val
 
-    x2 :: Twogle String String
+    x2 :: Twogle [] String String
     x2 = do
-      liftIO $ putStrLn "Evaluating x2"
-      pure "x2 val"
+      liftIO $ putStrLn "Evaluating x2, about to pull out x3"
+      -- x3Val <- twogleHitchAt (!! 2)
+      x3Val <- twogleHitchAtIndexable 2
+      liftIO $ putStrLn "Evaluating x2, finished pulling out x3"
+      pure $ "X2 (" <> x3Val <> ") VAL"
 
-    x3 :: Twogle String String
+    x3 :: Twogle [] String String
+    x3 = do
+      liftIO $ putStrLn "Evaluating x3"
+      pure "x3 val"
+
+-------------
+-- Treegle --
+-------------
+
+newtype Treegle f b m a = Treegle { unTreegle :: m (f (Treegle f b m b)) a }
+
+instance Functor (m (f (Treegle f b m b))) => Functor (Treegle f b m) where
+  fmap :: (a -> x) -> Treegle f b m a -> Treegle f b m x
+  fmap a2x (Treegle treegle) = Treegle $ fmap a2x treegle
+
+instance Applicative (m (f (Treegle f b m b))) => Applicative (Treegle f b m) where
+  pure a = Treegle $ pure a
+  Treegle f <*> Treegle g = Treegle $ f <*> g
+
+instance Monad (m (f (Treegle f b m b))) => Monad (Treegle f b m) where
+  Treegle f >>= k = Treegle $ f >>= unTreegle . k
+
+instance MonadIO (m (f (Treegle f b m b))) => MonadIO (Treegle f b m) where
+  liftIO f = Treegle $ liftIO f
+
+treegleHitchAt :: forall b f m. Monad (m (f (Treegle f b m b))) => (forall x. m (f x) x) -> Treegle f b m b
+treegleHitchAt lookupFunc = Treegle go
+  where
+    go :: m (f (Treegle f b m b)) b
+    go = do
+      res <- lookupFunc :: m (f (Treegle f b m b)) (Treegle f b m b)
+      unTreegle res
+
+-- treegleHitchAtIndexable :: forall b f. Indexable f => Key f -> Treegle f b b
+-- treegleHitchAtIndexable key = Treegle go
+--   where
+--     go :: f (Treegle f b b) -> IO b
+--     go r =
+--       let twog = unTreegle $ index r key :: f (Treegle f b b) -> IO b
+--       in twog r
+
+runTreegles
+  :: forall m b f
+   . ( Monad (m (f (Treegle f b m b)))
+     , Traversable f
+     , Category m
+     )
+  => m (f (Treegle f b m b)) (f b)
+runTreegles = Cat.id >>= g
+  where
+    g :: f (Treegle f b m b) -> m (f (Treegle f b m b)) (f b)
+    g = unTreegle . sequenceA
+
+newtype ArrIO r a = ArrIO { unArrIO :: r -> IO a }
+  deriving Functor
+
+instance Applicative (ArrIO r) where
+  pure a = ArrIO $ \_ -> pure a
+  ArrIO a2b <*> ArrIO b = ArrIO $ \r -> a2b r <*> b r
+
+instance Monad (ArrIO r) where
+  ArrIO m >>= k = ArrIO $ \r -> m r >>= ($ r) . unArrIO .  k
+
+instance MonadIO (ArrIO r) where
+  liftIO m = ArrIO $ \_ -> m
+
+instance Category ArrIO where
+  id :: ArrIO x x
+  id = ArrIO $ \r -> pure r
+
+  (.) :: ArrIO b c -> ArrIO a b -> ArrIO a c
+  ArrIO bc . ArrIO ab = ArrIO $ \a -> ab a >>= bc
+
+example8 :: IO ()
+example8 = do
+  res <- unArrIO runTreegles [x1, x2, x3]
+  print res
+  where
+    x1 :: Treegle [] String ArrIO String
+    x1 =
+      Treegle $ ArrIO $ \(r :: [Treegle [] String ArrIO String]) -> do
+        putStrLn "Evaluating x1, about to pull out x2"
+        let f = unArrIO $ unTreegle (r !! 1) :: [Treegle [] String ArrIO String] -> IO String
+        x2Val <- f r
+        putStrLn "Evaluating x1, finished pulling out x2"
+        pure $ "x1 val" <> x2Val
+
+    x2 :: Treegle [] String ArrIO String
+    x2 = do
+      liftIO $ putStrLn "Evaluating x2, about to pull out x3"
+      x3Val <- treegleHitchAt (ArrIO $ \r -> pure (r !! 2)) -- (!! 2)
+      -- x3Val <- treegleHitchAtIndexable 2
+      liftIO $ putStrLn "Evaluating x2, finished pulling out x3"
+      pure $ "X2 (" <> x3Val <> ") VAL"
+
+    x3 :: Treegle [] String ArrIO String
     x3 = do
       liftIO $ putStrLn "Evaluating x3"
       pure "x3 val"
