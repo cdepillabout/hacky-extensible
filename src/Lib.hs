@@ -613,7 +613,9 @@ runTreegles
      , Category m
      )
   => m (f (Treegle f b m b)) (f b)
-runTreegles = Cat.id >>= g
+runTreegles = do
+  treegles <- Cat.id
+  g treegles
   where
     g :: f (Treegle f b m b) -> m (f (Treegle f b m b)) (f b)
     g = unTreegle . sequenceA
